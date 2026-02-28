@@ -1,0 +1,3 @@
+# Requirements for Hotel Management Tkinter App
+Pillow>=10.0.0
+tkcalendar>=1.6.1
