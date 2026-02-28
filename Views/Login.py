@@ -1,6 +1,7 @@
-# Modern Login UI in Tkinter
 import tkinter as tk
 from tkinter import messagebox
+import database
+from Views.dashboard import DashboardWindow
 
 class LoginWindow(tk.Toplevel):
 	def __init__(self, master=None):
@@ -10,6 +11,8 @@ class LoginWindow(tk.Toplevel):
 		self.configure(bg="#181f2a")
 		self.resizable(True, True)
 		self.state('zoomed')  # Start maximized
+		self.username_entry = None
+		self.password_entry = None
 		self.create_widgets()
 
 	def create_widgets(self):
@@ -94,9 +97,11 @@ class LoginWindow(tk.Toplevel):
 	def submit(self):
 		username = self.username_entry.get()
 		password = self.password_entry.get()
-		# Placeholder for authentication logic
-		if username == "admin" and password == "admin":
-			messagebox.showinfo("Login Success", "Welcome, admin!")
+		
+		if database.verify_user(username, password):
+			messagebox.showinfo("Login Success", f"Welcome, {username}!")
+			self.destroy()
+			DashboardWindow(self.master)
 		else:
 			messagebox.showerror("Login Failed", "Invalid username or password.")
 

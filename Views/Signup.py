@@ -1,6 +1,6 @@
-# Modern Signup UI in Tkinter
 import tkinter as tk
 from tkinter import messagebox
+import database
 
 class SignupWindow(tk.Toplevel):
 	def __init__(self, master=None):
@@ -10,6 +10,10 @@ class SignupWindow(tk.Toplevel):
 		self.configure(bg="#181f2a")
 		self.resizable(True, True)
 		self.state('zoomed')  # Start maximized
+		self.username_entry = None
+		self.email_entry = None
+		self.password_entry = None
+		self.confirm_entry = None
 		self.create_widgets()
 
 	def create_widgets(self):
@@ -107,13 +111,18 @@ class SignupWindow(tk.Toplevel):
 		email = self.email_entry.get()
 		password = self.password_entry.get()
 		confirm = self.confirm_entry.get()
-		# Placeholder for signup logic
+		
 		if not username or not email or not password or not confirm:
 			messagebox.showerror("Error", "All fields are required.")
 		elif password != confirm:
 			messagebox.showerror("Error", "Passwords do not match.")
 		else:
-			messagebox.showinfo("Success", "Account created successfully!")
+			success, msg = database.add_user(username, email, password)
+			if success:
+				messagebox.showinfo("Success", msg)
+				self.open_login()
+			else:
+				messagebox.showerror("Error", msg)
 
 	def open_login(self):
 		self.destroy()
