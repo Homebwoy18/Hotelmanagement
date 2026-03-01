@@ -50,7 +50,8 @@ class RoomsPage(tk.Frame):
         # Main Table Container
         main_container = tk.Frame(self, bg=self.COLORS["card"], 
                                   highlightbackground=self.COLORS["border"], highlightthickness=1)
-        main_container.pack(fill="both", expand=True)
+        # Added side padding of 60 to prevent the table from being too wide
+        main_container.pack(fill="both", expand=True, padx=60, pady=(0, 20))
 
         # Table Header
         table_header = tk.Frame(main_container, bg=self.COLORS["sidebar"], pady=15)
@@ -88,27 +89,31 @@ class RoomsPage(tk.Frame):
                 
                 if i == 2: # Status Badge
                     color = self.COLORS["success"] if val == "Available" else (self.COLORS["danger"] if val == "Occupied" else self.COLORS["warning"])
-                    badge_bg = tk.Frame(row, bg=color, padx=12, pady=4)
-                    badge_bg.grid(row=0, column=i)
+                    badge_container = tk.Frame(row, bg=self.COLORS["card"])
+                    badge_container.grid(row=0, column=i, sticky="ew")
+                    badge_bg = tk.Frame(badge_container, bg=color, padx=12, pady=4)
+                    badge_bg.pack()
                     tk.Label(badge_bg, text=val.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
                 
                 elif i == 4: # Actions
                     actions_frame = tk.Frame(row, bg=self.COLORS["card"])
-                    actions_frame.grid(row=0, column=i)
+                    actions_frame.grid(row=0, column=i, sticky="ew")
                     
-                    tk.Button(actions_frame, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], 
+                    inner_actions = tk.Frame(actions_frame, bg=self.COLORS["card"])
+                    inner_actions.pack()
+                    
+                    tk.Button(inner_actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], 
                               fg=self.COLORS["accent"], bd=0, cursor="hand2", 
                               command=lambda r=room: self.add_room_dialog(edit_data=r)).pack(side="left", padx=10)
                     
-                    # Highlighted Delete Button
-                    tk.Button(actions_frame, text="DELETE", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
+                    tk.Button(inner_actions, text="DELETE", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
                               fg="white", bd=0, padx=12, pady=4, cursor="hand2", 
                               command=lambda n=num: self.delete_room_confirm(n)).pack(side="left", padx=5)
                 
                 else:
                     display_val = str(val).replace('$', 'GH₵ ')
                     tk.Label(row, text=display_val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
-                             bg=self.COLORS["card"]).grid(row=0, column=i)
+                             bg=self.COLORS["card"]).grid(row=0, column=i, sticky="ew")
 
     def delete_room_confirm(self, room_number):
         if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete Room {room_number}?"):

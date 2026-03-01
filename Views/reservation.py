@@ -26,7 +26,9 @@ class ReservationPage(tk.Frame):
         self.submit_btn = None
         self.search_entry = None
         self.search_var = tk.StringVar()
-        self.table_body = None
+        self.table_card = None # Shared grid container
+        self.weights = []
+        self.cols = []
         self.editing_id = None 
         self.canvas = None
         self.scrollbar = None
@@ -41,6 +43,7 @@ class ReservationPage(tk.Frame):
         self.refresh_table_data()
         
         super().__init__(parent, bg=self.COLORS["bg"])
+        self.canvas_window = None # Initialize for the resize handler
         self.setup_ui()
         
         # Unbind mousewheel when destroyed to prevent TclError
@@ -70,10 +73,8 @@ class ReservationPage(tk.Frame):
             "<Configure>",
             lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
-
-        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
         self.canvas.configure(yscrollcommand=self.scrollbar.set)
-
+        
         # Mousewheel support
         def _on_mousewheel(event):
             try:
@@ -83,11 +84,27 @@ class ReservationPage(tk.Frame):
         self.canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
         self.canvas.pack(side="left", fill="both", expand=True)
-        self.scrollbar.pack(side="right", fill="y")
+        # Added padx to the scrollbar to move it slightly backwards from the content
+        self.scrollbar.pack(side="right", fill="y", padx=(10, 5))
 
-        # Layout Container
-        main_layout = tk.Frame(self.scrollable_frame, bg=self.COLORS["bg"], padx=20, pady=20)
-        main_layout.pack(fill="both", expand=True)
+        # Using anchor="n" and a dynamic width for better centering and scrollbar avoidance
+        # Initializing with a default position
+        self.canvas_window = self.canvas.create_window((550, 0), window=self.scrollable_frame, anchor="n")
+        
+        # Centering binding moved AFTER canvas_window is created
+        def _on_canvas_configure(event):
+            # Center the window within the canvas
+            canvas_width = event.width
+            if self.canvas_window is not None:
+                # Max width increased to 1700 for ultra-wide screen support
+                self.canvas.itemconfig(self.canvas_window, width=min(canvas_width - 40, 1700))
+                self.canvas.coords(self.canvas_window, canvas_width / 2, 0)
+
+        self.canvas.bind("<Configure>", _on_canvas_configure)
+        
+        # Minimal padding to maximize usable width for the table (padx=5)
+        main_layout = tk.Frame(self.scrollable_frame, bg=self.COLORS["bg"], padx=5, pady=20)
+        main_layout.pack(fill="both", expand=True, padx=(0, 20))
         
         # Header
         header = tk.Frame(main_layout, bg=self.COLORS["bg"], pady=10)
@@ -171,73 +188,108 @@ class ReservationPage(tk.Frame):
         self.search_entry.pack(side="left", padx=10)
         self.search_var.trace_add("write", lambda *args: self.search_bookings(self.search_var.get()))
 
-        table_card = tk.Frame(main_layout, bg=self.COLORS["card"], 
-                              highlightbackground=self.COLORS["border"], highlightthickness=1)
-        table_card.pack(fill="x", pady=(0, 40))
+        self.table_card = tk.Frame(main_layout, bg=self.COLORS["card"], 
+                               highlightbackground=self.COLORS["border"], highlightthickness=1)
+        self.table_card.pack(fill="x", pady=(0, 40))
         
-        table_cols = tk.Frame(table_card, bg=self.COLORS["sidebar"], pady=15, padx=20)
-        table_cols.pack(fill="x")
-        cols = ["Guest Name", "Room", "Dates", "Total", "Payment", "Status", "Actions"]
-        for i, col in enumerate(cols):
-            lbl = tk.Label(table_cols, text=col.upper(), font=("Segoe UI", 10, "bold"),
-                           fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
-            lbl.grid(row=0, column=i, sticky="ew")
-            table_cols.grid_columnconfigure(i, weight=1)
-
-        self.table_body = tk.Frame(table_card, bg=self.COLORS["card"])
-        self.table_body.pack(fill="both", expand=True)
-
+        # Grid weights for perfect vertical alignment
+        self.weights = [20, 15, 10, 20, 10, 10, 10, 20]
+        self.cols = ["Guest Name", "Phone", "Room", "Booking Dates", "Total Cost", "Payment", "Status", "Actions"]
+        
         self.update_table()
 
     def update_table(self):
-        if not self.table_body: return
-        for widget in self.table_body.winfo_children():
+        if not self.table_card: return
+        for widget in self.table_card.winfo_children():
             widget.destroy()
+
+        # 1. Header Row (Single Grid)
+        table_header = tk.Frame(self.table_card, bg=self.COLORS["sidebar"], pady=15, padx=20)
+        table_header.pack(fill="x")
+        for i, col in enumerate(self.cols):
+            lbl = tk.Label(table_header, text=col.upper(), font=("Segoe UI", 10, "bold"),
+                           fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
+            lbl.grid(row=0, column=i, sticky="ew")
+            table_header.grid_columnconfigure(i, weight=self.weights[i])
+
+        # 2. Body Container
+        body_container = tk.Frame(self.table_card, bg=self.COLORS["card"])
+        body_container.pack(fill="both", expand=True)
 
         for idx, row_data in enumerate(self.display_data):
             # row_data columns: [guest_name, room_num, dates, cost, pay_status, status, id, phone, id_num, d1, d2, days]
-            row = tk.Frame(self.table_body, bg=self.COLORS["card"], pady=15, padx=20)
-            row.pack(fill="x")
-            tk.Frame(self.table_body, bg=self.COLORS["border"], height=1).pack(fill="x")
+            row_frame = tk.Frame(body_container, bg=self.COLORS["card"], pady=12, padx=20)
+            row_frame.pack(fill="x")
+            
+            # Configure weights for the row to match the header exactly
+            for i in range(len(self.weights)):
+                row_frame.grid_columnconfigure(i, weight=self.weights[i])
 
-            for i, val in enumerate(row_data[:6]): # Show only first 6 columns
-                row.grid_columnconfigure(i, weight=1)
-                
-                if i == 3: # Price Display
-                    display_val = str(val).replace('$', 'GH₵ ').replace('GH₵ GH₵', 'GH₵')
-                    tk.Label(row, text=display_val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
-                             bg=self.COLORS["card"]).grid(row=0, column=i)
-                elif i == 4: # Payment Badge
-                    color = self.COLORS["success"] if val == "Paid" else self.COLORS["danger"]
-                    badge = tk.Frame(row, bg=color, padx=12, pady=4)
-                    badge.grid(row=0, column=i)
-                    tk.Label(badge, text=val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=color).pack()
-                elif i == 5: # Status Badge
-                    if val == "Confirmed": color = self.COLORS["info"]
-                    elif val == "Checked-out": color = self.COLORS["warning"]
-                    else: color = self.COLORS["success"]
-                    
-                    badge = tk.Frame(row, bg=color, padx=12, pady=4)
-                    badge.grid(row=0, column=i)
-                    tk.Label(badge, text=val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=color).pack()
-                else:
-                    tk.Label(row, text=val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
-                             bg=self.COLORS["card"]).grid(row=0, column=i)
+            # Column 0: Name
+            tk.Label(row_frame, text=row_data[0][:25], font=("Segoe UI", 11), 
+                     fg=self.COLORS["text_primary"], bg=self.COLORS["card"], anchor="w").grid(row=0, column=0, sticky="ew")
+            
+            # Column 1: Phone
+            tk.Label(row_frame, text=row_data[7], font=("Segoe UI", 11), 
+                     fg=self.COLORS["text_secondary"], bg=self.COLORS["card"], anchor="w").grid(row=0, column=1, sticky="ew")
 
-            row.grid_columnconfigure(6, weight=1)
-            actions = tk.Frame(row, bg=self.COLORS["card"])
-            actions.grid(row=0, column=6)
+            # Column 2: Room
+            tk.Label(row_frame, text=row_data[1], font=("Segoe UI", 11), 
+                     fg=self.COLORS["text_primary"], bg=self.COLORS["card"], anchor="center").grid(row=0, column=2, sticky="ew")
+
+            # Column 3: Dates
+            tk.Label(row_frame, text=row_data[2], font=("Segoe UI", 10), 
+                     fg=self.COLORS["text_primary"], bg=self.COLORS["card"], anchor="w").grid(row=0, column=3, sticky="ew")
+
+            # Column 4: Total Cost
+            dk_val = f"GH₵ {row_data[3]:,.2f}"
+            tk.Label(row_frame, text=dk_val, font=("Segoe UI", 11, "bold"), 
+                     fg=self.COLORS["text_primary"], bg=self.COLORS["card"], anchor="e").grid(row=0, column=4, sticky="ew", padx=(0, 10))
+
+            # Column 5: Payment Badge
+            p_val = row_data[4]
+            p_color = self.COLORS["success"] if p_val == "Paid" else self.COLORS["danger"]
+            p_badge_container = tk.Frame(row_frame, bg=self.COLORS["card"])
+            p_badge_container.grid(row=0, column=5, sticky="ew")
+            p_badge = tk.Frame(p_badge_container, bg=p_color, padx=10, pady=4)
+            p_badge.pack()
+            tk.Label(p_badge, text=p_val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=p_color).pack()
+
+            # Column 6: Status Badge
+            s_val = row_data[5]
+            if s_val == "Confirmed": s_color = self.COLORS["info"]
+            elif s_val == "Checked-out": s_color = self.COLORS["warning"]
+            else: s_color = self.COLORS["success"]
+            s_badge_container = tk.Frame(row_frame, bg=self.COLORS["card"])
+            s_badge_container.grid(row=0, column=6, sticky="ew")
+            s_badge = tk.Frame(s_badge_container, bg=s_color, padx=10, pady=4)
+            s_badge.pack()
+            tk.Label(s_badge, text=s_val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=s_color).pack()
+
+            # Column 7: Actions
+            actions = tk.Frame(row_frame, bg=self.COLORS["card"])
+            actions.grid(row=0, column=7, sticky="ew")
+            inner_actions = tk.Frame(actions, bg=self.COLORS["card"])
+            inner_actions.pack()
             
             if row_data[5] != "Checked-out":
-                tk.Button(actions, text="Checkout", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
-                          fg="white", bd=0, padx=10, pady=4, cursor="hand2", 
-                          command=lambda r=row_data: self.checkout_record(r)).pack(side="left", padx=5)
+                if row_data[4] == "Unpaid":
+                    tk.Button(inner_actions, text="✅ Pay", font=("Segoe UI", 9, "bold"), bg=self.COLORS["success"], 
+                              fg="white", bd=0, padx=8, pady=4, cursor="hand2", 
+                              command=lambda r=row_data: self.mark_as_paid(r)).pack(side="left", padx=2)
                 
-                tk.Button(actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], fg=self.COLORS["accent"], bd=0, 
-                          cursor="hand2", command=lambda r=row_data: self.edit_record(r)).pack(side="left", padx=5)
+                tk.Button(inner_actions, text="Checkout", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
+                          fg="white", bd=0, padx=8, pady=4, cursor="hand2", 
+                          command=lambda r=row_data: self.checkout_record(r)).pack(side="left", padx=2)
+                
+                tk.Button(inner_actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], fg=self.COLORS["accent"], bd=0, 
+                          cursor="hand2", command=lambda r=row_data: self.edit_record(r)).pack(side="left", padx=2)
             else:
-                tk.Label(actions, text="Archived", font=("Segoe UI", 10, "italic"), fg=self.COLORS["text_secondary"], 
+                tk.Label(inner_actions, text="Archived", font=("Segoe UI", 10, "italic"), fg=self.COLORS["text_secondary"], 
                          bg=self.COLORS["card"]).pack()
+
+            # Border line
+            tk.Frame(body_container, bg=self.COLORS["border"], height=1).pack(fill="x")
 
     def calculate_cost(self, event=None):
         try:
@@ -259,7 +311,9 @@ class ReservationPage(tk.Frame):
             cost_entry.delete(0, tk.END)
             cost_entry.insert(0, f"GH₵ {total:,.2f}")
             cost_entry.config(state="readonly")
-        except: pass
+        except Exception as e:
+            # If calculation fails (e.g. invalid dates), don't clear the field
+            pass
 
     def recalculate_from_days(self, event=None):
         try:
@@ -300,6 +354,16 @@ class ReservationPage(tk.Frame):
             self.update_table()
         else:
             messagebox.showerror("Error", "Could not save reservation.")
+
+    def mark_as_paid(self, row_data):
+        res_id = row_data[6]
+        if messagebox.askyesno("Confirm Payment", f"Mark booking for {row_data[0]} as PAID?"):
+            if database.update_payment_status(res_id, "Paid"):
+                self.refresh_table_data()
+                self.update_table()
+                messagebox.showinfo("Success", "Payment updated successfully.")
+            else:
+                messagebox.showerror("Error", "Failed to update payment.")
 
     def checkout_record(self, row_data):
         res_id = row_data[6]
@@ -372,6 +436,13 @@ class ReservationPage(tk.Frame):
         
         self.refresh_room_data()
         self.entries["Room"].config(values=self.available_rooms)
-        if self.available_rooms: self.entries["Room"].current(0)
-        self.entries["Number of Days"].current(0)
-        self.calculate_cost()
+        if self.available_rooms: 
+            self.entries["Room"].current(0)
+            self.calculate_cost()
+        else:
+            self.entries["Number of Days"].set("0")
+            cost_entry = self.entries["Total Cost"]
+            cost_entry.config(state="normal")
+            cost_entry.delete(0, tk.END)
+            cost_entry.insert(0, "GH₵ 0.00")
+            cost_entry.config(state="readonly")

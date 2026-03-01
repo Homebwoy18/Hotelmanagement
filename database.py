@@ -204,6 +204,17 @@ def get_all_reservations():
     conn.close()
     return res
 
+def update_payment_status(res_id, status):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE reservations SET pay_status = ? WHERE id = ?", (status, res_id))
+        conn.commit()
+        conn.close()
+        return True
+    except:
+        return False
+
 def get_active_reservations():
     # Helper for Inventory "Room Charge" dropdown
     conn = get_connection()
@@ -296,14 +307,47 @@ def record_sale(item_id, quantity, payment_method, reservation_id=None):
         print(f"Error recording sale: {e}")
         return False
 
+def record_sale_manual(item_id, quantity, payment_method, manual_price, reservation_id=None):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        total_cost = manual_price * quantity
+        
+        cursor.execute('''
+            INSERT INTO sales (item_id, reservation_id, quantity, total_cost, payment_method)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (item_id, reservation_id, quantity, total_cost, payment_method))
+        
+        if payment_method == 'Room Charge' and reservation_id:
+            cursor.execute("UPDATE reservations SET cost = cost + ? WHERE id = ?", (total_cost, reservation_id))
+            
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error recording sale: {e}")
+        return False
+
+def get_reservation_balance(res_id):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT cost FROM reservations WHERE id = ?", (res_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except:
+        return 0
+
 def get_sales_report():
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute('''
-        SELECT s.id, i.name, s.quantity, s.total_cost, s.payment_method, s.sale_date, r.guest_name
+        SELECT s.id, i.name, s.quantity, s.total_cost, s.payment_method, s.sale_date, r.guest_name, rm.room_number
         FROM sales s
         JOIN inventory_items i ON s.item_id = i.id
         LEFT JOIN reservations r ON s.reservation_id = r.id
+        LEFT JOIN rooms rm ON r.room_id = rm.id
         ORDER BY s.sale_date DESC
     ''')
     res = cursor.fetchall()

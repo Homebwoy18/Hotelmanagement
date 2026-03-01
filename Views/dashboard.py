@@ -1,10 +1,13 @@
 # Redesigned Professional Dashboard
 import tkinter as tk
 from tkinter import ttk, messagebox
+import sys
+import os
+
 from Views.rooms import RoomsPage
 from Views.reservation import ReservationPage
 from Views.history import HistoryPage
-from Views.inventory import InventoryPage
+from Views.inventory import InventoryPage # Will rename content but keep filename for now
 import database
 
 class DashboardWindow(tk.Frame):
@@ -37,8 +40,6 @@ class DashboardWindow(tk.Frame):
 
         self.setup_styles()
         self.create_layout()
-        
-        # Navigation initialized in create_layout/sidebar section or after
         self.show_dashboard()
 
     def setup_styles(self):
@@ -55,15 +56,14 @@ class DashboardWindow(tk.Frame):
 
         logo_frame = tk.Frame(self.sidebar, bg=self.COLORS["sidebar"], pady=40)
         logo_frame.pack(fill="x")
-        logo = tk.Label(logo_frame, text="GRAND HOTEL", font=("Segoe UI", 20, "bold"),
-                        fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
-        logo.pack()
+        tk.Label(logo_frame, text="GRAND HOTEL", font=("Segoe UI", 20, "bold"),
+                        fg=self.COLORS["accent"], bg=self.COLORS["sidebar"]).pack()
 
         # Navigation Buttons
         self.create_sidebar_btn("Dashboard", "🏠", self.show_dashboard)
         self.create_sidebar_btn("Rooms", "🏢", self.show_rooms)
         self.create_sidebar_btn("Booking", "📅", self.show_reservation)
-        self.create_sidebar_btn("Inventory", "🍱", self.show_inventory)
+        self.create_sidebar_btn("Meals", "🍱", self.show_meals)
         self.create_sidebar_btn("History", "📜", self.show_history)
         self.create_sidebar_btn("Logout", "🚪", self.logout)
 
@@ -80,12 +80,6 @@ class DashboardWindow(tk.Frame):
                                   fg=self.COLORS["text_primary"], bg=self.COLORS["card"], padx=30)
         self.page_title.pack(side="left", pady=20)
 
-        # Top Bar Search
-        search_frame = tk.Frame(self.topbar, bg="#374151", padx=15, pady=8, highlightbackground=self.COLORS["border"], highlightthickness=1)
-        search_frame.pack(side="right", padx=30, pady=18)
-        tk.Label(search_frame, text="🔍", bg="#374151", fg=self.COLORS["text_secondary"]).pack(side="left")
-        tk.Entry(search_frame, bg="#374151", fg="white", border=0, insertbackground="white", width=30, font=("Segoe UI", 10)).pack(side="left", padx=10)
-
         # Main Workspace
         self.main = tk.Frame(self.content_area, bg=self.COLORS["bg"])
         self.main.pack(fill="both", expand=True, padx=40, pady=(0, 40))
@@ -95,7 +89,7 @@ class DashboardWindow(tk.Frame):
         btn_frame.pack(fill="x", pady=2)
 
         icon_label = tk.Label(btn_frame, text=icon, font=("Segoe UI Emoji", 14),
-                              fg=self.COLORS["text_secondary"], bg=self.COLORS["sidebar"])
+                               fg=self.COLORS["text_secondary"], bg=self.COLORS["sidebar"])
         icon_label.pack(side="left", padx=(30, 10), pady=15)
 
         text_label = tk.Label(btn_frame, text=name, font=("Segoe UI", 12, "bold"),
@@ -118,29 +112,29 @@ class DashboardWindow(tk.Frame):
 
     def on_nav_enter(self, name):
         if self.active_page != name:
-            widgets = self.sidebar_buttons[name]
-            widgets["frame"].config(bg="#374151")
-            widgets["icon"].config(bg="#374151", fg="white")
-            widgets["text"].config(bg="#374151", fg="white")
+            w = self.sidebar_buttons[name]
+            w["frame"].config(bg="#374151")
+            w["icon"].config(bg="#374151", fg="white")
+            w["text"].config(bg="#374151", fg="white")
 
     def on_nav_leave(self, name):
         if self.active_page != name:
-            widgets = self.sidebar_buttons[name]
-            widgets["frame"].config(bg=self.COLORS["sidebar"])
-            widgets["icon"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
-            widgets["text"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
+            w = self.sidebar_buttons[name]
+            w["frame"].config(bg=self.COLORS["sidebar"])
+            w["icon"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
+            w["text"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
 
     def set_active_nav(self, nav_name):
         self.active_page = nav_name
-        for name, widgets in self.sidebar_buttons.items():
+        for name, w in self.sidebar_buttons.items():
             if name == nav_name:
-                widgets["frame"].config(bg=self.COLORS["accent"])
-                widgets["icon"].config(bg=self.COLORS["accent"], fg="white")
-                widgets["text"].config(bg=self.COLORS["accent"], fg="white")
+                w["frame"].config(bg=self.COLORS["accent"])
+                w["icon"].config(bg=self.COLORS["accent"], fg="white")
+                w["text"].config(bg=self.COLORS["accent"], fg="white")
             else:
-                widgets["frame"].config(bg=self.COLORS["sidebar"])
-                widgets["icon"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
-                widgets["text"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
+                w["frame"].config(bg=self.COLORS["sidebar"])
+                w["icon"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
+                w["text"].config(bg=self.COLORS["sidebar"], fg=self.COLORS["text_secondary"])
 
     def clear_main(self):
         for widget in self.main.winfo_children():
@@ -152,8 +146,6 @@ class DashboardWindow(tk.Frame):
         self.set_active_nav("Dashboard")
         
         stats = database.get_dashboard_stats()
-        
-        # Stats Grid
         stats_frame = tk.Frame(self.main, bg=self.COLORS["bg"])
         stats_frame.pack(fill="x", pady=30)
         
@@ -168,11 +160,9 @@ class DashboardWindow(tk.Frame):
             card = tk.Frame(stats_frame, bg=self.COLORS["card"], padx=25, pady=25, highlightbackground=self.COLORS["border"], highlightthickness=1)
             card.grid(row=0, column=i, padx=10, sticky="nsew")
             stats_frame.grid_columnconfigure(i, weight=1)
-            
             tk.Label(card, text=title, font=("Segoe UI", 10, "bold"), fg=self.COLORS["text_secondary"], bg=self.COLORS["card"]).pack(anchor="w")
             tk.Label(card, text=val, font=("Segoe UI", 24, "bold"), fg=color, bg=self.COLORS["card"], pady=10).pack(anchor="w")
 
-        # Recent Bookings Section
         tk.Label(self.main, text="Recent Bookings Status", font=("Segoe UI", 16, "bold"), 
                  fg=self.COLORS["text_primary"], bg=self.COLORS["bg"]).pack(anchor="w", pady=(20, 15))
 
@@ -196,7 +186,6 @@ class DashboardWindow(tk.Frame):
         if not self.table_body: return
         for widget in self.table_body.winfo_children(): widget.destroy()
 
-        # Display first 10
         for row_data in self.all_data[:10]:
             row = tk.Frame(self.table_body, bg=self.COLORS["card"], pady=12)
             row.pack(fill="x")
@@ -225,10 +214,10 @@ class DashboardWindow(tk.Frame):
         self.set_active_nav("Booking")
         ReservationPage(self.main).pack(fill="both", expand=True)
 
-    def show_inventory(self):
+    def show_meals(self):
         self.clear_main()
-        self.page_title.config(text="Inventory & POS")
-        self.set_active_nav("Inventory")
+        self.page_title.config(text="Meals & Services")
+        self.set_active_nav("Meals")
         InventoryPage(self.main).pack(fill="both", expand=True)
 
     def show_history(self):
@@ -240,5 +229,16 @@ class DashboardWindow(tk.Frame):
     def logout(self):
         if messagebox.askyesno("Logout", "Confirm Logout?"):
             self.master.destroy()
-            import main as m
-            m.main()
+            # More robust way to restart the app correctly
+            try:
+                # Add root to sys.path to ensure main is found
+                root_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                if root_path not in sys.path: sys.path.insert(0, root_path)
+                import main as m
+                # Refresh module if already imported
+                import importlib
+                importlib.reload(m)
+                m.main()
+            except Exception as e:
+                print(f"Logout Error: {e}")
+                os.execl(sys.executable, sys.executable, *sys.argv)

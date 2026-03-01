@@ -101,6 +101,7 @@ class LoginWindow(tk.Toplevel):
 		if database.verify_user(username, password):
 			messagebox.showinfo("Login Success", f"Welcome, {username}!")
 			self.destroy()
+			self.master.deiconify() # Show the root window for the dashboard
 			DashboardWindow(self.master)
 		else:
 			messagebox.showerror("Login Failed", "Invalid username or password.")
