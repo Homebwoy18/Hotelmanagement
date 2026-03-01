@@ -20,9 +20,28 @@ class RoomsPage(tk.Frame):
         super().__init__(parent, bg=self.COLORS["bg"])
         
         self.rooms_list_frame = None
+        self.pagination_frame = None
         self.rooms_data = database.get_rooms()
+        self.display_data = list(self.rooms_data)
+        self.search_var = tk.StringVar()
+        
+        # Pagination
+        self.current_page = 0
+        self.rows_per_page = 10
+        self.weights = [15, 20, 15, 15, 20]
+        self.cols = ["Room Number", "Type", "Status", "Price", "Actions"]
+        
         self.create_widgets()
         self.update_rooms_list()
+        
+        # Unbind mousewheel when destroyed
+        self.bind("<Destroy>", self.on_destroy)
+
+    def on_destroy(self, event):
+        if event.widget == self:
+            try:
+                self.unbind_all("<MouseWheel>")
+            except: pass
 
     def create_widgets(self):
         # Header with Search/Actions
@@ -35,10 +54,21 @@ class RoomsPage(tk.Frame):
         search_container.pack(side="left")
         
         tk.Label(search_container, text="🔍", bg=self.COLORS["card"], fg=self.COLORS["text_secondary"]).pack(side="left")
-        search_entry = tk.Entry(search_container, bg=self.COLORS["card"], fg=self.COLORS["text_primary"], 
+        search_entry = tk.Entry(search_container, textvariable=self.search_var, bg=self.COLORS["card"], fg=self.COLORS["text_primary"], 
                                  insertbackground="white", border=0, font=("Segoe UI", 11), width=40)
         search_entry.pack(side="left", padx=10)
-        search_entry.insert(0, "Search rooms...")
+        
+        def on_search_focus_in(e):
+            if self.search_var.get() == "Search rooms...":
+                self.search_var.set("")
+        def on_search_focus_out(e):
+            if not self.search_var.get():
+                self.search_var.set("Search rooms...")
+        
+        search_entry.bind("<FocusIn>", on_search_focus_in)
+        search_entry.bind("<FocusOut>", on_search_focus_out)
+        self.search_var.set("Search rooms...")
+        self.search_var.trace_add("write", lambda *args: self.search_rooms(self.search_var.get()))
 
         # Add Room Button
         add_btn = tk.Button(header, text="+ Add New Room", font=("Segoe UI", 11, "bold"),
@@ -53,67 +83,160 @@ class RoomsPage(tk.Frame):
         # Added side padding of 60 to prevent the table from being too wide
         main_container.pack(fill="both", expand=True, padx=60, pady=(0, 20))
 
-        # Table Header
-        table_header = tk.Frame(main_container, bg=self.COLORS["sidebar"], pady=15)
+        # Structural fix for exact column alignment: Header and Canvas share inner_container
+        # Scrollbar is outside inner_container
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=None)
+        scrollbar.pack(side="right", fill="y")
+        
+        inner_container = tk.Frame(main_container, bg=self.COLORS["card"])
+        inner_container.pack(side="left", fill="both", expand=True)
+
+        # Table Header (Inside inner_container)
+        table_header = tk.Frame(inner_container, bg=self.COLORS["sidebar"], pady=15, padx=20)
         table_header.pack(fill="x")
         
-        cols = ["Room Number", "Type", "Status", "Price", "Actions"]
-        for i, col in enumerate(cols):
+        for i, col in enumerate(self.cols):
             lbl = tk.Label(table_header, text=col.upper(), font=("Segoe UI", 10, "bold"),
                            fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
             lbl.grid(row=0, column=i, sticky="ew")
-            table_header.grid_columnconfigure(i, weight=1)
+            table_header.grid_columnconfigure(i, weight=self.weights[i])
 
-        self.rooms_list_frame = tk.Frame(main_container, bg=self.COLORS["card"])
-        self.rooms_list_frame.pack(fill="both", expand=True)
+        # Canvas (Inside inner_container)
+        canvas = tk.Canvas(inner_container, bg=self.COLORS["card"], highlightthickness=0, height=500)
+        canvas.pack(fill="both", expand=True)
+        
+        scrollbar.config(command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        self.rooms_list_frame = tk.Frame(canvas, bg=self.COLORS["card"])
+        canvas.create_window((0, 0), window=self.rooms_list_frame, anchor="nw")
+        
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas.find_all()[0], width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+
+        # Mousewheel Support
+        def _on_mousewheel(event):
+            try:
+                if canvas.winfo_exists():
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except: pass
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        # Pagination Footer
+        self.pagination_frame = tk.Frame(self, bg=self.COLORS["bg"], pady=10)
+        self.pagination_frame.pack(fill="x", side="bottom")
 
     def update_rooms_list(self):
-        # Clear existing rows
-        for widget in self.rooms_list_frame.winfo_children():
-            widget.destroy()
+        if not self.rooms_list_frame: return
+        for widget in self.rooms_list_frame.winfo_children(): widget.destroy()
 
         self.rooms_data = database.get_rooms()
+        self.search_rooms(self.search_var.get())
+
+    def search_rooms(self, query):
+        if not self.rooms_list_frame: return
+        query = query.lower().strip()
+        if not query or query == "search rooms...":
+            self.display_data = list(self.rooms_data)
+        else:
+            self.display_data = [r for r in self.rooms_data if query in str(r["room_number"]).lower() or query in r["type"].lower() or query in r["status"].lower()]
         
-        for idx, room in enumerate(self.rooms_data):
+        # 1. Pagination Slice
+        total_items = len(self.display_data)
+        total_pages = max(1, (total_items + self.rows_per_page - 1) // self.rows_per_page)
+        
+        if self.current_page >= total_pages: self.current_page = total_pages - 1
+        start = self.current_page * self.rows_per_page
+        end = start + self.rows_per_page
+        page_data = self.display_data[start:end]
+
+        # 2. Render Page Rows
+        for idx, room in enumerate(page_data):
             num, r_type, status, price = room["room_number"], room["type"], room["status"], room["price"]
             
-            row = tk.Frame(self.rooms_list_frame, bg=self.COLORS["card"], pady=12)
+            row = tk.Frame(self.rooms_list_frame, bg=self.COLORS["card"], pady=12, padx=20)
             row.pack(fill="x")
             
-            # Row border bottom
-            sep = tk.Frame(self.rooms_list_frame, bg=self.COLORS["border"], height=1)
-            sep.pack(fill="x")
+            for i in range(len(self.weights)):
+                row.grid_columnconfigure(i, weight=self.weights[i])
 
-            for i, val in enumerate([num, r_type, status, price, "actions"]):
-                row.grid_columnconfigure(i, weight=1)
-                
-                if i == 2: # Status Badge
-                    color = self.COLORS["success"] if val == "Available" else (self.COLORS["danger"] if val == "Occupied" else self.COLORS["warning"])
-                    badge_container = tk.Frame(row, bg=self.COLORS["card"])
-                    badge_container.grid(row=0, column=i, sticky="ew")
-                    badge_bg = tk.Frame(badge_container, bg=color, padx=12, pady=4)
-                    badge_bg.pack()
-                    tk.Label(badge_bg, text=val.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
-                
-                elif i == 4: # Actions
-                    actions_frame = tk.Frame(row, bg=self.COLORS["card"])
-                    actions_frame.grid(row=0, column=i, sticky="ew")
-                    
-                    inner_actions = tk.Frame(actions_frame, bg=self.COLORS["card"])
-                    inner_actions.pack()
-                    
-                    tk.Button(inner_actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], 
-                              fg=self.COLORS["accent"], bd=0, cursor="hand2", 
-                              command=lambda r=room: self.add_room_dialog(edit_data=r)).pack(side="left", padx=10)
-                    
-                    tk.Button(inner_actions, text="DELETE", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
-                              fg="white", bd=0, padx=12, pady=4, cursor="hand2", 
-                              command=lambda n=num: self.delete_room_confirm(n)).pack(side="left", padx=5)
-                
-                else:
-                    display_val = str(val).replace('$', 'GH₵ ')
-                    tk.Label(row, text=display_val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
-                             bg=self.COLORS["card"]).grid(row=0, column=i, sticky="ew")
+            # Column 0: Room Number
+            tk.Label(row, text=str(num), font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
+                     bg=self.COLORS["card"], anchor="w").grid(row=0, column=0, sticky="ew")
+            
+            # Column 1: Type
+            tk.Label(row, text=r_type, font=("Segoe UI", 11), fg=self.COLORS["text_secondary"], 
+                     bg=self.COLORS["card"], anchor="w").grid(row=0, column=1, sticky="ew")
+
+            # Column 2: Status Badge
+            color = self.COLORS["success"] if status == "Available" else (self.COLORS["danger"] if status == "Occupied" else self.COLORS["warning"])
+            badge_container = tk.Frame(row, bg=self.COLORS["card"])
+            badge_container.grid(row=0, column=2, sticky="ew")
+            badge_bg = tk.Frame(badge_container, bg=color, padx=12, pady=4)
+            badge_bg.pack()
+            tk.Label(badge_bg, text=status.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
+
+            # Column 3: Price
+            display_price = str(price).replace('$', 'GH₵ ')
+            tk.Label(row, text=display_price, font=("Segoe UI", 11, "bold"), fg=self.COLORS["text_primary"], 
+                     bg=self.COLORS["card"], anchor="e").grid(row=0, column=3, sticky="ew", padx=(0, 15))
+
+            # Column 4: Actions
+            actions_frame = tk.Frame(row, bg=self.COLORS["card"])
+            actions_frame.grid(row=0, column=4, sticky="ew")
+            inner_actions = tk.Frame(actions_frame, bg=self.COLORS["card"])
+            inner_actions.pack()
+            
+            tk.Button(inner_actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], 
+                      fg=self.COLORS["accent"], bd=0, cursor="hand2", 
+                      command=lambda r=room: self.add_room_dialog(edit_data=r)).pack(side="left", padx=10)
+            
+            tk.Button(inner_actions, text="DELETE", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
+                      fg="white", bd=0, padx=12, pady=4, cursor="hand2", 
+                      command=lambda n=num: self.delete_room_confirm(n)).pack(side="left", padx=5)
+
+            # Row border bottom
+            tk.Frame(self.rooms_list_frame, bg=self.COLORS["border"], height=1).pack(fill="x")
+
+        # 3. Update Pagination Controls
+        self.update_pagination_controls(total_pages)
+
+    def update_pagination_controls(self, total_pages):
+        for widget in self.pagination_frame.winfo_children(): widget.destroy()
+        
+        inner_p = tk.Frame(self.pagination_frame, bg=self.COLORS["bg"])
+        inner_p.pack()
+
+        prev_btn = tk.Button(inner_p, text="← Previous", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page > 0 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page > 0 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page > 0 else "arrow",
+                            command=self.prev_page)
+        prev_btn.pack(side="left", padx=10)
+
+        page_lbl = tk.Label(inner_p, text=f"Page {self.current_page + 1} of {total_pages}",
+                           font=("Segoe UI", 11), fg=self.COLORS["text_primary"], bg=self.COLORS["bg"])
+        page_lbl.pack(side="left", padx=20)
+
+        next_btn = tk.Button(inner_p, text="Next →", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page < total_pages - 1 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page < total_pages - 1 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page < total_pages - 1 else "arrow",
+                            command=self.next_page)
+        next_btn.pack(side="left", padx=10)
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_rooms_list()
+
+    def next_page(self):
+        total_items = len(self.display_data)
+        total_pages = (total_items + self.rows_per_page - 1) // self.rows_per_page
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self.update_rooms_list()
 
     def delete_room_confirm(self, room_number):
         if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete Room {room_number}?"):

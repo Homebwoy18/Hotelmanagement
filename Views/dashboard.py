@@ -7,7 +7,10 @@ import os
 from Views.rooms import RoomsPage
 from Views.reservation import ReservationPage
 from Views.history import HistoryPage
-from Views.inventory import InventoryPage # Will rename content but keep filename for now
+from Views.inventory import InventoryPage 
+from Views.menu_management import MenuManagementPage
+from Views.history import HistoryPage
+from Views.sales_history import SalesHistoryPage
 import database
 
 class DashboardWindow(tk.Frame):
@@ -30,6 +33,12 @@ class DashboardWindow(tk.Frame):
         self.all_data = []
         self.table_body = None
         
+        # Pagination
+        self.current_page = 0
+        self.rows_per_page = 10
+        self.weights = [20, 10, 25, 15, 15, 15]
+        self.cols = ["Guest Name", "Room", "Stay Period", "Total Cost", "Pay Status", "Status"]
+        
         self.active_page = "Dashboard"
         self.sidebar_buttons = {} 
         self.sidebar = None
@@ -37,6 +46,8 @@ class DashboardWindow(tk.Frame):
         self.topbar = None
         self.page_title = None
         self.main = None
+        self.header_frame = None
+        self.pagination_frame = None
 
         self.setup_styles()
         self.create_layout()
@@ -63,7 +74,9 @@ class DashboardWindow(tk.Frame):
         self.create_sidebar_btn("Dashboard", "🏠", self.show_dashboard)
         self.create_sidebar_btn("Rooms", "🏢", self.show_rooms)
         self.create_sidebar_btn("Booking", "📅", self.show_reservation)
-        self.create_sidebar_btn("Meals", "🍱", self.show_meals)
+        self.create_sidebar_btn("POS / Sales", "🛒", self.show_pos)
+        self.create_sidebar_btn("Meal Menu", "🍱", self.show_menu)
+        self.create_sidebar_btn("Sales History", "📈", self.show_sales_history)
         self.create_sidebar_btn("History", "📜", self.show_history)
         self.create_sidebar_btn("Logout", "🚪", self.logout)
 
@@ -78,7 +91,8 @@ class DashboardWindow(tk.Frame):
 
         self.page_title = tk.Label(self.topbar, text="Dashboard Overview", font=("Segoe UI", 18, "bold"),
                                   fg=self.COLORS["text_primary"], bg=self.COLORS["card"], padx=30)
-        self.page_title.pack(side="left", pady=20)
+        if self.page_title:
+            self.page_title.pack(side="left", pady=20)
 
         # Main Workspace
         self.main = tk.Frame(self.content_area, bg=self.COLORS["bg"])
@@ -169,38 +183,116 @@ class DashboardWindow(tk.Frame):
         table_card = tk.Frame(self.main, bg=self.COLORS["card"], highlightbackground=self.COLORS["border"], highlightthickness=1)
         table_card.pack(fill="both", expand=True)
 
-        table_header = tk.Frame(table_card, bg=self.COLORS["sidebar"], pady=15)
-        table_header.pack(fill="x")
-        cols = ["Guest Name", "Room", "Stay Period", "Total Cost", "Pay Status", "Status"]
-        for i, col in enumerate(cols):
-            lbl = tk.Label(table_header, text=col.upper(), font=("Segoe UI", 10, "bold"), fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
-            lbl.grid(row=0, column=i, sticky="ew")
-            table_header.grid_columnconfigure(i, weight=1)
+        # Structural fix for exact column alignment: Header and Canvas share inner_container
+        # Scrollbar is outside inner_container
+        scrollbar = ttk.Scrollbar(table_card, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
+        
+        inner_container = tk.Frame(table_card, bg=self.COLORS["card"])
+        inner_container.pack(side="left", fill="both", expand=True)
 
-        self.table_body = tk.Frame(table_card, bg=self.COLORS["card"])
-        self.table_body.pack(fill="both", expand=True)
+        # Table Header (Inside inner_container)
+        self.header_frame = tk.Frame(inner_container, bg=self.COLORS["sidebar"], pady=15, padx=20)
+        self.header_frame.pack(fill="x")
+        for i, col in enumerate(self.cols):
+            tk.Label(self.header_frame, text=col.upper(), font=("Segoe UI", 10, "bold"), 
+                     fg=self.COLORS["accent"], bg=self.COLORS["sidebar"]).grid(row=0, column=i, sticky="ew")
+            self.header_frame.grid_columnconfigure(i, weight=self.weights[i])
+
+        # Scrollable table container (Inside inner_container)
+        canvas = tk.Canvas(inner_container, bg=self.COLORS["card"], highlightthickness=0, height=400)
+        canvas.pack(fill="both", expand=True)
+        
+        self.table_body = tk.Frame(canvas, bg=self.COLORS["card"])
+        self.canvas_window = canvas.create_window((0, 0), window=self.table_body, anchor="nw")
+        
+        def _on_canvas_configure(event):
+            canvas.itemconfig(self.canvas_window, width=event.width)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        
+        scrollbar.config(command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Pagination Frame
+        self.pagination_frame = tk.Frame(self.main, bg=self.COLORS["bg"], pady=10)
+        self.pagination_frame.pack(fill="x")
+        
         self.update_table()
 
     def update_table(self):
-        self.all_data = database.get_all_reservations()
         if not self.table_body: return
         for widget in self.table_body.winfo_children(): widget.destroy()
 
-        for row_data in self.all_data[:10]:
-            row = tk.Frame(self.table_body, bg=self.COLORS["card"], pady=12)
-            row.pack(fill="x")
-            tk.Frame(self.table_body, bg=self.COLORS["border"], height=1).pack(fill="x")
+        self.all_data = database.get_all_reservations()
+        total_items = len(self.all_data)
+        total_pages = max(1, (total_items + self.rows_per_page - 1) // self.rows_per_page)
+        
+        if self.current_page >= total_pages: self.current_page = total_pages - 1
+        start = self.current_page * self.rows_per_page
+        end = start + self.rows_per_page
+        page_data = self.all_data[start:end]
 
+        for row_data in page_data:
+            row = tk.Frame(self.table_body, bg=self.COLORS["card"], pady=12, padx=20)
+            row.pack(fill="x")
+            
+            for i in range(len(self.weights)):
+                row.grid_columnconfigure(i, weight=self.weights[i])
+
+            # Columns
+            # 0: Name, 1: Room, 2: Stay Period, 3: Cost, 4: Pay Stat, 5: Status
             for i, val in enumerate(row_data[:6]):
-                row.grid_columnconfigure(i, weight=1)
-                if i == 5: # Status
+                if i == 5: # Status Badge
                     color = "#3B82F6" if val == "Confirmed" else ("#10B981" if val == "Checked-in" else "#F59E0B")
-                    badge = tk.Frame(row, bg=color, padx=12, pady=4)
-                    badge.grid(row=0, column=i)
+                    badge_container = tk.Frame(row, bg=self.COLORS["card"])
+                    badge_container.grid(row=0, column=i, sticky="ew")
+                    badge = tk.Frame(badge_container, bg=color, padx=12, pady=4)
+                    badge.pack()
                     tk.Label(badge, text=val.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
                 else:
                     display_val = str(val).replace('$', 'GH₵ ').replace('GH₵ GH₵', 'GH₵')
-                    tk.Label(row, text=display_val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], bg=self.COLORS["card"]).grid(row=0, column=i)
+                    tk.Label(row, text=display_val, font=("Segoe UI", 11), fg=self.COLORS["text_primary"], 
+                             bg=self.COLORS["card"], anchor="w" if i != 1 else "center").grid(row=0, column=i, sticky="ew")
+            
+            tk.Frame(self.table_body, bg=self.COLORS["border"], height=1).pack(fill="x")
+
+        self.update_pagination_controls(total_pages)
+
+    def update_pagination_controls(self, total_pages):
+        for widget in self.pagination_frame.winfo_children(): widget.destroy()
+        
+        inner_p = tk.Frame(self.pagination_frame, bg=self.COLORS["bg"])
+        inner_p.pack()
+
+        prev_btn = tk.Button(inner_p, text="← Previous", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page > 0 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page > 0 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page > 0 else "arrow",
+                            command=self.prev_page)
+        prev_btn.pack(side="left", padx=10)
+
+        page_lbl = tk.Label(inner_p, text=f"Page {self.current_page + 1} of {total_pages}",
+                           font=("Segoe UI", 11), fg=self.COLORS["text_primary"], bg=self.COLORS["bg"])
+        page_lbl.pack(side="left", padx=20)
+
+        next_btn = tk.Button(inner_p, text="Next →", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page < total_pages - 1 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page < total_pages - 1 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page < total_pages - 1 else "arrow",
+                            command=self.next_page)
+        next_btn.pack(side="left", padx=10)
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_table()
+
+    def next_page(self):
+        total_items = len(self.all_data)
+        total_pages = (total_items + self.rows_per_page - 1) // self.rows_per_page
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self.update_table()
 
     def show_rooms(self):
         self.clear_main()
@@ -214,11 +306,23 @@ class DashboardWindow(tk.Frame):
         self.set_active_nav("Booking")
         ReservationPage(self.main).pack(fill="both", expand=True)
 
-    def show_meals(self):
+    def show_pos(self):
         self.clear_main()
-        self.page_title.config(text="Meals & Services")
-        self.set_active_nav("Meals")
+        self.page_title.config(text="Point of Sale (POS)")
+        self.set_active_nav("POS / Sales")
         InventoryPage(self.main).pack(fill="both", expand=True)
+
+    def show_menu(self):
+        self.clear_main()
+        self.page_title.config(text="Meal Menu Management")
+        self.set_active_nav("Meal Menu")
+        MenuManagementPage(self.main).pack(fill="both", expand=True)
+
+    def show_sales_history(self):
+        self.clear_main()
+        self.page_title.config(text="Sales Performance History")
+        self.set_active_nav("Sales History")
+        SalesHistoryPage(self.main).pack(fill="both", expand=True)
 
     def show_history(self):
         self.clear_main()

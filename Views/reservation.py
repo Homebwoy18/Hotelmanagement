@@ -39,6 +39,8 @@ class ReservationPage(tk.Frame):
         self.display_data = []
         
         # Load data
+        self.current_page = 0
+        self.rows_per_page = 10
         self.refresh_room_data()
         self.refresh_table_data()
         
@@ -62,6 +64,7 @@ class ReservationPage(tk.Frame):
     def refresh_table_data(self):
         self.all_data = database.get_all_reservations()
         self.display_data = [list(r) for r in self.all_data]
+        self.current_page = 0 # Reset to first page
 
     def setup_ui(self):
         # 1. Main Canvas for Scrolling
@@ -190,38 +193,66 @@ class ReservationPage(tk.Frame):
 
         self.table_card = tk.Frame(main_layout, bg=self.COLORS["card"], 
                                highlightbackground=self.COLORS["border"], highlightthickness=1)
-        self.table_card.pack(fill="x", pady=(0, 40))
+        self.table_card.pack(fill="x", pady=(0, 20))
         
         # Grid weights for perfect vertical alignment
         self.weights = [20, 15, 10, 20, 10, 10, 10, 20]
         self.cols = ["Guest Name", "Phone", "Room", "Booking Dates", "Total Cost", "Payment", "Status", "Actions"]
         
+        # Structural fix for exact column alignment: Header and Canvas share inner_container
+        # Scrollbar is outside inner_container
+        self.table_scrollbar = ttk.Scrollbar(self.table_card, orient="vertical", command=None)
+        self.table_scrollbar.pack(side="right", fill="y")
+        
+        inner_container = tk.Frame(self.table_card, bg=self.COLORS["card"])
+        inner_container.pack(side="left", fill="both", expand=True)
+
+        # Header (Inside inner_container)
+        self.header_frame = tk.Frame(inner_container, bg=self.COLORS["sidebar"], pady=15, padx=20)
+        self.header_frame.pack(fill="x")
+        for i, col in enumerate(self.cols):
+            tk.Label(self.header_frame, text=col.upper(), font=("Segoe UI", 10, "bold"),
+                     fg=self.COLORS["accent"], bg=self.COLORS["sidebar"]).grid(row=0, column=i, sticky="ew")
+            self.header_frame.grid_columnconfigure(i, weight=self.weights[i])
+
+        # Canvas (Inside inner_container)
+        self.table_canvas = tk.Canvas(inner_container, bg=self.COLORS["card"], highlightthickness=0, height=500)
+        self.table_canvas.pack(fill="both", expand=True)
+        
+        self.table_scrollbar.config(command=self.table_canvas.yview)
+        self.table_canvas.configure(yscrollcommand=self.table_scrollbar.set)
+
+        self.table_body = tk.Frame(self.table_canvas, bg=self.COLORS["card"])
+        self.table_canvas_window = self.table_canvas.create_window((0, 0), window=self.table_body, anchor="nw")
+        
+        def _on_table_configure(event):
+            self.table_canvas.itemconfig(self.table_canvas_window, width=event.width)
+        self.table_canvas.bind("<Configure>", _on_table_configure)
+
+        # 3. Pagination Footer (Below table_card)
+        self.pagination_frame = tk.Frame(main_layout, bg=self.COLORS["bg"], pady=10)
+        self.pagination_frame.pack(fill="x", pady=(0, 40))
+
         self.update_table()
 
     def update_table(self):
-        if not self.table_card: return
-        for widget in self.table_card.winfo_children():
-            widget.destroy()
+        if not hasattr(self, 'table_body') or not self.table_body: return
+        for widget in self.table_body.winfo_children(): widget.destroy()
 
-        # 1. Header Row (Single Grid)
-        table_header = tk.Frame(self.table_card, bg=self.COLORS["sidebar"], pady=15, padx=20)
-        table_header.pack(fill="x")
-        for i, col in enumerate(self.cols):
-            lbl = tk.Label(table_header, text=col.upper(), font=("Segoe UI", 10, "bold"),
-                           fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
-            lbl.grid(row=0, column=i, sticky="ew")
-            table_header.grid_columnconfigure(i, weight=self.weights[i])
+        # 1. Pagination Slice
+        total_items = len(self.display_data)
+        total_pages = max(1, (total_items + self.rows_per_page - 1) // self.rows_per_page)
+        
+        if self.current_page >= total_pages: self.current_page = total_pages - 1
+        start = self.current_page * self.rows_per_page
+        end = start + self.rows_per_page
+        page_data = self.display_data[start:end]
 
-        # 2. Body Container
-        body_container = tk.Frame(self.table_card, bg=self.COLORS["card"])
-        body_container.pack(fill="both", expand=True)
-
-        for idx, row_data in enumerate(self.display_data):
-            # row_data columns: [guest_name, room_num, dates, cost, pay_status, status, id, phone, id_num, d1, d2, days]
-            row_frame = tk.Frame(body_container, bg=self.COLORS["card"], pady=12, padx=20)
+        # 2. Render Page Rows
+        for idx, row_data in enumerate(page_data):
+            row_frame = tk.Frame(self.table_body, bg=self.COLORS["card"], pady=12, padx=20)
             row_frame.pack(fill="x")
             
-            # Configure weights for the row to match the header exactly
             for i in range(len(self.weights)):
                 row_frame.grid_columnconfigure(i, weight=self.weights[i])
 
@@ -256,40 +287,85 @@ class ReservationPage(tk.Frame):
             tk.Label(p_badge, text=p_val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=p_color).pack()
 
             # Column 6: Status Badge
-            s_val = row_data[5]
-            if s_val == "Confirmed": s_color = self.COLORS["info"]
-            elif s_val == "Checked-out": s_color = self.COLORS["warning"]
-            else: s_color = self.COLORS["success"]
-            s_badge_container = tk.Frame(row_frame, bg=self.COLORS["card"])
-            s_badge_container.grid(row=0, column=6, sticky="ew")
-            s_badge = tk.Frame(s_badge_container, bg=s_color, padx=10, pady=4)
-            s_badge.pack()
-            tk.Label(s_badge, text=s_val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=s_color).pack()
+            # 6: Status
+            status = row_data[7]
+            color = "#3B82F6" if status == "Confirmed" else ("#10B981" if status == "Checked-in" else "#F59E0B")
+            badge_frame = tk.Frame(row_frame, bg=self.COLORS["card"])
+            badge_frame.grid(row=0, column=6, sticky="ew")
+            badge = tk.Frame(badge_frame, bg=color, padx=10, pady=3)
+            badge.pack()
+            tk.Label(badge, text=status.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
 
             # Column 7: Actions
             actions = tk.Frame(row_frame, bg=self.COLORS["card"])
-            actions.grid(row=0, column=7, sticky="ew")
+            actions.grid(row=0, column=7, sticky="e")
             inner_actions = tk.Frame(actions, bg=self.COLORS["card"])
             inner_actions.pack()
             
-            if row_data[5] != "Checked-out":
-                if row_data[4] == "Unpaid":
-                    tk.Button(inner_actions, text="✅ Pay", font=("Segoe UI", 9, "bold"), bg=self.COLORS["success"], 
-                              fg="white", bd=0, padx=8, pady=4, cursor="hand2", 
-                              command=lambda r=row_data: self.mark_as_paid(r)).pack(side="left", padx=2)
-                
-                tk.Button(inner_actions, text="Checkout", font=("Segoe UI", 9, "bold"), bg=self.COLORS["danger"], 
-                          fg="white", bd=0, padx=8, pady=4, cursor="hand2", 
-                          command=lambda r=row_data: self.checkout_record(r)).pack(side="left", padx=2)
-                
-                tk.Button(inner_actions, text="✏", font=("Segoe UI", 12), bg=self.COLORS["card"], fg=self.COLORS["accent"], bd=0, 
-                          cursor="hand2", command=lambda r=row_data: self.edit_record(r)).pack(side="left", padx=2)
+            # Show actions based on status
+            if status != "Checked-out":
+                # Checkout Button
+                tk.Button(inner_actions, text="✔ CHECKOUT", font=("Segoe UI", 8, "bold"), bg=self.COLORS["success"], fg="white", 
+                        bd=0, padx=8, pady=4, cursor="hand2", command=lambda d=row_data: self.checkout_record(d)).pack(side="left", padx=2)
+
+                # Extend Button
+                tk.Button(inner_actions, text="➕ EXTEND", font=("Segoe UI", 8, "bold"), bg=self.COLORS["accent"], fg="white", 
+                        bd=0, padx=8, pady=4, cursor="hand2", command=lambda d=row_data: self.open_extend_dialog(d)).pack(side="left", padx=2)
+            
+                # Edit and Delete
+                tk.Button(inner_actions, text="✏️", font=("Segoe UI", 10), bg=self.COLORS["sidebar"], fg="white", 
+                          bd=0, padx=8, pady=4, cursor="hand2", command=lambda d=row_data: self.edit_record(d)).pack(side="left", padx=2)
+                tk.Button(inner_actions, text="🗑", font=("Segoe UI", 10), bg=self.COLORS["danger"], fg="white", 
+                          bd=0, padx=8, pady=4, cursor="hand2", command=lambda d=row_data: self.delete_record(d[6])).pack(side="left")
             else:
                 tk.Label(inner_actions, text="Archived", font=("Segoe UI", 10, "italic"), fg=self.COLORS["text_secondary"], 
                          bg=self.COLORS["card"]).pack()
 
             # Border line
-            tk.Frame(body_container, bg=self.COLORS["border"], height=1).pack(fill="x")
+            tk.Frame(self.table_body, bg=self.COLORS["border"], height=1).pack(fill="x")
+        
+        # Update Canvas Scroll Region
+        self.table_body.update_idletasks()
+        self.table_canvas.config(scrollregion=self.table_canvas.bbox("all"))
+
+        # 3. Render Pagination Controls
+        self.update_pagination_controls(total_pages)
+
+    def update_pagination_controls(self, total_pages):
+        for widget in self.pagination_frame.winfo_children(): widget.destroy()
+        
+        inner_p = tk.Frame(self.pagination_frame, bg=self.COLORS["bg"])
+        inner_p.pack()
+
+        prev_btn = tk.Button(inner_p, text="← Previous", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page > 0 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page > 0 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page > 0 else "arrow",
+                            command=self.prev_page)
+        prev_btn.pack(side="left", padx=10)
+
+        page_lbl = tk.Label(inner_p, text=f"Page {self.current_page + 1} of {total_pages}",
+                           font=("Segoe UI", 11), fg=self.COLORS["text_primary"], bg=self.COLORS["bg"])
+        page_lbl.pack(side="left", padx=20)
+
+        next_btn = tk.Button(inner_p, text="Next →", font=("Segoe UI", 10, "bold"),
+                            fg="white" if self.current_page < total_pages - 1 else self.COLORS["text_secondary"],
+                            bg=self.COLORS["sidebar"] if self.current_page < total_pages - 1 else self.COLORS["bg"],
+                            bd=0, padx=15, pady=8, cursor="hand2" if self.current_page < total_pages - 1 else "arrow",
+                            command=self.next_page)
+        next_btn.pack(side="left", padx=10)
+
+    def prev_page(self):
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.update_table()
+
+    def next_page(self):
+        total_items = len(self.display_data)
+        total_pages = (total_items + self.rows_per_page - 1) // self.rows_per_page
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self.update_table()
 
     def calculate_cost(self, event=None):
         try:
@@ -414,11 +490,18 @@ class ReservationPage(tk.Frame):
         self.calculate_cost()
 
     def search_bookings(self, query):
-        query = query.lower()
+        query = query.lower().strip()
         if not query:
             self.display_data = [list(r) for r in self.all_data]
         else:
-            self.display_data = [list(r) for r in self.all_data if any(query in str(v).lower() for v in r)]
+            # Search across: guest_name, room_number, phone, id_number
+            self.display_data = []
+            for r in self.all_data:
+                # [guest_name, room_num, dates, cost, pay_status, status, id, phone, id_num, check_in, check_out, days]
+                searchable_text = f"{r[0]} {r[1]} {r[7]} {r[8]}".lower()
+                if query in searchable_text:
+                    self.display_data.append(list(r))
+        self.current_page = 0
         self.update_table()
 
     def clear_form(self):
@@ -446,3 +529,49 @@ class ReservationPage(tk.Frame):
             cost_entry.delete(0, tk.END)
             cost_entry.insert(0, "GH₵ 0.00")
             cost_entry.config(state="readonly")
+
+    def delete_record(self, res_id):
+        if messagebox.askyesno("Confirm Delete", "Permanently delete this reservation?"):
+            if database.delete_reservation(res_id):
+                self.refresh_room_data()
+                self.refresh_table_data()
+                self.update_table()
+                messagebox.showinfo("Success", "Reservation deleted.")
+            else:
+                messagebox.showerror("Error", "Could not delete reservation.")
+
+    def open_extend_dialog(self, row_data):
+        res_id = row_data[6]
+        dialog = tk.Toplevel(self)
+        dialog.title("Extend Stay")
+        dialog.geometry("350x250")
+        dialog.configure(bg=self.COLORS["bg"])
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+
+        main = tk.Frame(dialog, bg=self.COLORS["bg"], padx=20, pady=20)
+        main.pack(fill="both", expand=True)
+
+        tk.Label(main, text="Extend Stay", font=("Segoe UI", 16, "bold"), fg="white", bg=self.COLORS["bg"]).pack(pady=(0, 20))
+        tk.Label(main, text="Extra Days to Stay:", fg=self.COLORS["text_secondary"], bg=self.COLORS["bg"]).pack(anchor="w")
+        
+        days_var = tk.StringVar(value="1")
+        entry = tk.Entry(main, textvariable=days_var, font=("Segoe UI", 12), bg=self.COLORS["card"], fg="white", bd=0)
+        entry.pack(fill="x", pady=(5, 20), ipady=8)
+
+        def save():
+            try:
+                extra = int(days_var.get())
+                if extra <= 0: raise ValueError
+                if database.extend_reservation_stay(res_id, extra):
+                    self.refresh_table_data()
+                    self.update_table()
+                    dialog.destroy()
+                    messagebox.showinfo("Success", f"Stay extended by {extra} days.")
+                else:
+                    messagebox.showerror("Error", "Failed to extend stay.")
+            except:
+                messagebox.showwarning("Error", "Please enter a valid number of days.")
+
+        tk.Button(main, text="Extend Stay", font=("Segoe UI", 11, "bold"), bg=self.COLORS["accent"], 
+                  fg="white", bd=0, pady=10, cursor="hand2", command=save).pack(fill="x")

@@ -1,5 +1,6 @@
 import sqlite3
 import hashlib
+from datetime import datetime, timedelta
 
 DB_NAME = "hotel_management.db"
 
@@ -215,6 +216,19 @@ def update_payment_status(res_id, status):
     except:
         return False
 
+def get_reservation_by_id(res_id):
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT r.*, rm.price as room_rate, rm.room_number
+        FROM reservations r
+        JOIN rooms rm ON r.room_id = rm.id
+        WHERE r.id = ?
+    ''', (res_id,))
+    res = cursor.fetchone()
+    conn.close()
+    return res
+
 def get_active_reservations():
     # Helper for Inventory "Room Charge" dropdown
     conn = get_connection()
@@ -228,6 +242,42 @@ def get_active_reservations():
     res = cursor.fetchall()
     conn.close()
     return res
+
+def extend_reservation_stay(res_id, extra_days):
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Get current reservation and room price
+        cursor.execute('''
+            SELECT r.days, r.cost, r.check_out, rm.price
+            FROM reservations r
+            JOIN rooms rm ON r.room_id = rm.id
+            WHERE r.id = ?
+        ''', (res_id,))
+        data = cursor.fetchone()
+        if not data: return False
+        
+        curr_days, curr_cost, curr_checkout, room_price = data
+        new_days = curr_days + extra_days
+        new_cost = curr_cost + (extra_days * room_price)
+        
+        # Calculate new checkout date
+        checkout_dt = datetime.strptime(curr_checkout, "%Y-%m-%d")
+        new_checkout = (checkout_dt + timedelta(days=extra_days)).strftime("%Y-%m-%d")
+        
+        cursor.execute('''
+            UPDATE reservations 
+            SET days = ?, cost = ?, check_out = ?
+            WHERE id = ?
+        ''', (new_days, new_cost, new_checkout, res_id))
+        
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Error extending stay: {e}")
+        return False
 
 def checkout_reservation(res_id):
     try:
@@ -353,6 +403,27 @@ def get_sales_report():
     res = cursor.fetchall()
     conn.close()
     return res
+
+def get_daily_sales_stats():
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Sales today
+    cursor.execute("SELECT COUNT(*), SUM(total_cost) FROM sales WHERE DATE(sale_date) = DATE('now')")
+    stats = cursor.fetchone()
+    daily_count = stats[0] or 0
+    daily_revenue = stats[1] or 0
+    
+    # Total revenue from all time (Sales)
+    cursor.execute("SELECT SUM(total_cost) FROM sales")
+    total_sales_revenue = cursor.fetchone()[0] or 0
+    
+    conn.close()
+    return {
+        "daily_count": daily_count,
+        "daily_revenue": daily_revenue,
+        "total_revenue": total_sales_revenue
+    }
 
 # --- Dashboard Helpers ---
 def get_dashboard_stats():

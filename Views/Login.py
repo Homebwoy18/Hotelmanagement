@@ -39,10 +39,10 @@ class LoginWindow(tk.Toplevel):
 		spacer = tk.Frame(left_frame, bg="#181f2a", height=80)
 		spacer.pack()
 
-		logo = tk.Label(left_frame, text="HotelEase", font=("Arial Black", 32, "bold"), fg="white", bg="#181f2a")
+		logo = tk.Label(left_frame, text="Kwahu Hotel", font=("Arial Black", 32, "bold"), fg="white", bg="#181f2a")
 		logo.pack(anchor="w", pady=(0, 20))
 
-		welcome = tk.Label(left_frame, text="Welcome to HotelEase!", font=("Arial", 30, "bold"), fg="white", bg="#181f2a")
+		welcome = tk.Label(left_frame, text="Welcome to Kwahu Hotel!", font=("Arial", 30, "bold"), fg="white", bg="#181f2a")
 		welcome.pack(anchor="w", pady=(0, 10))
 
 		desc = tk.Label(left_frame, text="Your comfort is our priority.\nBook, relax, and enjoy the best hotel experience.\nSign in to manage your reservations or explore our services!",
