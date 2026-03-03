@@ -2,24 +2,11 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import database
+from Views.theme import COLORS
 
 class InventoryPage(tk.Frame): # Keeping class name for compatibility
     def __init__(self, parent):
-        self.COLORS = {
-            "bg": "#111827",
-            "sidebar": "#1F2937",
-            "card": "#1F2937",
-            "accent": "#6366F1",
-            "text_primary": "#F9FAFB",
-            "text_secondary": "#9CA3AF",
-            "border": "#374151",
-            "success": "#10B981",
-            "danger": "#EF4444",
-            "warning": "#F59E0B",
-            "info": "#3B82F6",
-            "money_bg": "#FFFFFF",
-            "money_fg": "#000000"
-        }
+        self.COLORS = COLORS
         
         super().__init__(parent, bg=self.COLORS["bg"])
         self.items_list = []

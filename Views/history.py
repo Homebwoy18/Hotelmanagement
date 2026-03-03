@@ -1,23 +1,13 @@
 # Booking History Page
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog, messagebox
+import csv
 import database
+from Views.theme import COLORS
 
 class HistoryPage(tk.Frame):
     def __init__(self, parent):
-        self.COLORS = {
-            "bg": "#111827",
-            "sidebar": "#1F2937",
-            "card": "#1F2937",
-            "accent": "#6366F1",
-            "text_primary": "#F9FAFB",
-            "text_secondary": "#9CA3AF",
-            "border": "#374151",
-            "success": "#10B981",
-            "danger": "#EF4444",
-            "warning": "#F59E0B",
-            "info": "#3B82F6"
-        }
+        self.COLORS = COLORS
         
         super().__init__(parent, bg=self.COLORS["bg"])
         self.search_var = tk.StringVar()
@@ -39,13 +29,6 @@ class HistoryPage(tk.Frame):
         # Unbind mousewheel when destroyed
         self.bind("<Destroy>", self.on_destroy)
 
-        # Fetch all, then filter for history (Checked-out)
-        data = database.get_all_reservations()
-        self.all_data = [list(r) for r in data if r[5] == 'Checked-out']
-        self.display_data = self.all_data.copy()
-        self.current_page = 0 # Reset to first page on refresh
-        self.refresh_data()
-
     def on_destroy(self, event):
         if event.widget == self:
 
@@ -59,12 +42,16 @@ class HistoryPage(tk.Frame):
         container.pack(fill="both", expand=True)
         
         # Header
-        header = tk.Frame(container, bg=self.COLORS["bg"])
+        header = tk.Frame(container, bg=COLORS["bg"])
         header.pack(fill="x", pady=(0, 20))
-        tk.Label(header, text="Booking History Archives", font=("Segoe UI", 24, "bold"), 
-                 fg=self.COLORS["text_primary"], bg=self.COLORS["bg"]).pack(side="left")
-        
-        # Search
+        tk.Label(header, text="Booking History Archives", font=("Segoe UI", 24, "bold"),
+                 fg=COLORS["text_primary"], bg=COLORS["bg"]).pack(side="left")
+
+        # CSV Export button
+        tk.Button(header, text="⬇ Export CSV", font=("Segoe UI", 10, "bold"),
+                  fg="white", bg=COLORS["success"], activebackground="#059669",
+                  activeforeground="white", bd=0, padx=14, pady=6, cursor="hand2",
+                  command=self.export_csv).pack(side="right", padx=(0, 10))
         search_frame = tk.Frame(header, bg=self.COLORS["card"], padx=15, pady=8, 
                                highlightbackground=self.COLORS["border"], highlightthickness=1)
         search_frame.pack(side="right")
@@ -238,3 +225,27 @@ class HistoryPage(tk.Frame):
         else:
             self.display_data = [r for r in self.all_data if any(query in str(v).lower() for v in r)]
         self.update_table()
+
+    def export_csv(self):
+        if not self.display_data:
+            messagebox.showinfo("Export", "No data to export.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Save Booking History",
+            initialfile="booking_history.csv"
+        )
+        if not path:
+            return
+        headers = ["Guest Name", "Room", "Stay Period", "Total Cost", "Pay Status",
+                   "Status", "ID", "Phone", "ID Number", "Check-in", "Check-out", "Days"]
+        try:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                writer.writerows(self.display_data)
+            messagebox.showinfo("Export Successful", f"Data saved to:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))

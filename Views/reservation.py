@@ -4,6 +4,7 @@ from tkinter import ttk, messagebox
 from tkcalendar import DateEntry
 from datetime import datetime, timedelta
 import database
+from Views.theme import COLORS
 
 class ReservationPage(tk.Frame):
     def __init__(self, parent):
@@ -172,6 +173,13 @@ class ReservationPage(tk.Frame):
                                    activeforeground="white", bd=0, relief="flat", pady=10, cursor="hand2",
                                    command=self.save_reservation)
         self.submit_btn.pack(side="right", padx=10, pady=(20, 0), ipadx=30)
+
+        clear_btn = tk.Button(form_card, text="✕ Clear Form", font=("Segoe UI", 11),
+                              fg=self.COLORS["text_secondary"], bg=self.COLORS["sidebar"],
+                              activebackground=self.COLORS["border"], activeforeground="white",
+                              bd=0, relief="flat", pady=10, cursor="hand2",
+                              command=self.clear_form)
+        clear_btn.pack(side="right", padx=4, pady=(20, 0), ipadx=15)
         
         self.calculate_cost()
 
@@ -287,8 +295,7 @@ class ReservationPage(tk.Frame):
             tk.Label(p_badge, text=p_val.upper(), font=("Segoe UI", 8, "bold"), fg="white", bg=p_color).pack()
 
             # Column 6: Status Badge
-            # 6: Status
-            status = row_data[7]
+            status = row_data[5]
             color = "#3B82F6" if status == "Confirmed" else ("#10B981" if status == "Checked-in" else "#F59E0B")
             badge_frame = tk.Frame(row_frame, bg=self.COLORS["card"])
             badge_frame.grid(row=0, column=6, sticky="ew")

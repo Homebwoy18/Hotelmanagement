@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# PyInstaller build artifacts — do NOT commit
+build/
+dist/
+*.spec
+*.pkg
+
+# Database (runtime data — exclude from source control)
+hotel_management.db
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Pyright / type checker config (dev-only)
+pyrightconfig.json
+
+# Auto-reload dev script (dev-only)
+auto_reload.py

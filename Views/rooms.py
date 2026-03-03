@@ -2,25 +2,17 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 import database
+from Views.theme import COLORS
 
 class RoomsPage(tk.Frame):
     def __init__(self, parent):
-        self.COLORS = {
-            "bg": "#111827",
-            "sidebar": "#1F2937",
-            "card": "#1F2937",
-            "accent": "#6366F1",
-            "text_primary": "#F9FAFB",
-            "text_secondary": "#9CA3AF",
-            "border": "#374151",
-            "success": "#10B981",
-            "warning": "#F59E0B",
-            "danger": "#EF4444"
-        }
-        super().__init__(parent, bg=self.COLORS["bg"])
+        self.COLORS = COLORS
+        self._status_filter = None  # None = show all
+        super().__init__(parent, bg=COLORS["bg"])
         
         self.rooms_list_frame = None
         self.pagination_frame = None
+        self._canvas = None  # stored so scroll region can be updated after render
         self.rooms_data = database.get_rooms()
         self.display_data = list(self.rooms_data)
         self.search_var = tk.StringVar()
@@ -45,93 +37,101 @@ class RoomsPage(tk.Frame):
 
     def create_widgets(self):
         # Header with Search/Actions
-        header = tk.Frame(self, bg=self.COLORS["bg"], pady=20)
+        header = tk.Frame(self, bg=COLORS["bg"], pady=20)
         header.pack(fill="x")
 
         # Search Bar
-        search_container = tk.Frame(header, bg=self.COLORS["card"], 
-                                    padx=15, pady=8, highlightbackground=self.COLORS["border"], highlightthickness=1)
+        search_container = tk.Frame(header, bg=COLORS["card"],
+                                    padx=15, pady=8,
+                                    highlightbackground=COLORS["border"], highlightthickness=1)
         search_container.pack(side="left")
-        
-        tk.Label(search_container, text="🔍", bg=self.COLORS["card"], fg=self.COLORS["text_secondary"]).pack(side="left")
-        search_entry = tk.Entry(search_container, textvariable=self.search_var, bg=self.COLORS["card"], fg=self.COLORS["text_primary"], 
-                                 insertbackground="white", border=0, font=("Segoe UI", 11), width=40)
+        tk.Label(search_container, text="🔍", bg=COLORS["card"], fg=COLORS["text_secondary"]).pack(side="left")
+        search_entry = tk.Entry(search_container, textvariable=self.search_var, bg=COLORS["card"],
+                                fg=COLORS["text_primary"], insertbackground="white",
+                                border=0, font=("Segoe UI", 11), width=30)
         search_entry.pack(side="left", padx=10)
-        
-        def on_search_focus_in(e):
-            if self.search_var.get() == "Search rooms...":
-                self.search_var.set("")
-        def on_search_focus_out(e):
-            if not self.search_var.get():
-                self.search_var.set("Search rooms...")
-        
-        search_entry.bind("<FocusIn>", on_search_focus_in)
-        search_entry.bind("<FocusOut>", on_search_focus_out)
-        self.search_var.set("Search rooms...")
         self.search_var.trace_add("write", lambda *args: self.search_rooms(self.search_var.get()))
+
+        # Status filter buttons
+        filter_frame = tk.Frame(header, bg=COLORS["bg"])
+        filter_frame.pack(side="left", padx=20)
+        for label, val in [("All", None), ("Available", "Available"),
+                           ("Occupied", "Occupied"), ("Maintenance", "Maintenance")]:
+            tk.Button(
+                filter_frame, text=label, font=("Segoe UI", 9, "bold"),
+                fg="white", bg=COLORS["sidebar"], activebackground=COLORS["accent"],
+                activeforeground="white", bd=0, padx=12, pady=6, cursor="hand2",
+                command=lambda v=val: self._apply_filter(v)
+            ).pack(side="left", padx=3)
 
         # Add Room Button
         add_btn = tk.Button(header, text="+ Add New Room", font=("Segoe UI", 11, "bold"),
-                           fg="white", bg=self.COLORS["accent"], activebackground="#4F46E5",
-                           activeforeground="white", bd=0, relief="flat", padx=20, pady=8, cursor="hand2",
-                           command=self.add_room_dialog)
+                            fg="white", bg=COLORS["accent"], activebackground=COLORS["accent_hover"],
+                            activeforeground="white", bd=0, relief="flat", padx=20, pady=8,
+                            cursor="hand2", command=self.add_room_dialog)
         add_btn.pack(side="right")
 
         # Main Table Container
-        main_container = tk.Frame(self, bg=self.COLORS["card"], 
+        main_container = tk.Frame(self, bg=self.COLORS["card"],
                                   highlightbackground=self.COLORS["border"], highlightthickness=1)
-        # Added side padding of 60 to prevent the table from being too wide
         main_container.pack(fill="both", expand=True, padx=60, pady=(0, 20))
 
-        # Structural fix for exact column alignment: Header and Canvas share inner_container
-        # Scrollbar is outside inner_container
-        scrollbar = ttk.Scrollbar(main_container, orient="vertical", command=None)
-        scrollbar.pack(side="right", fill="y")
-        
         inner_container = tk.Frame(main_container, bg=self.COLORS["card"])
         inner_container.pack(side="left", fill="both", expand=True)
 
-        # Table Header (Inside inner_container)
+        # Table Header
         table_header = tk.Frame(inner_container, bg=self.COLORS["sidebar"], pady=15, padx=20)
         table_header.pack(fill="x")
-        
         for i, col in enumerate(self.cols):
             lbl = tk.Label(table_header, text=col.upper(), font=("Segoe UI", 10, "bold"),
                            fg=self.COLORS["accent"], bg=self.COLORS["sidebar"])
             lbl.grid(row=0, column=i, sticky="ew")
             table_header.grid_columnconfigure(i, weight=self.weights[i])
 
-        # Canvas (Inside inner_container)
-        canvas = tk.Canvas(inner_container, bg=self.COLORS["card"], highlightthickness=0, height=500)
-        canvas.pack(fill="both", expand=True)
-        
-        scrollbar.config(command=canvas.yview)
-        canvas.configure(yscrollcommand=scrollbar.set)
+        # Scrollable canvas
+        scrollbar = ttk.Scrollbar(main_container, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
 
-        self.rooms_list_frame = tk.Frame(canvas, bg=self.COLORS["card"])
-        canvas.create_window((0, 0), window=self.rooms_list_frame, anchor="nw")
-        
-        def _on_canvas_configure(event):
-            canvas.itemconfig(canvas.find_all()[0], width=event.width)
-        canvas.bind("<Configure>", _on_canvas_configure)
+        self._canvas = tk.Canvas(inner_container, bg=self.COLORS["card"],
+                                 highlightthickness=0, height=500,
+                                 yscrollcommand=scrollbar.set)
+        self._canvas.pack(fill="both", expand=True)
+        scrollbar.config(command=self._canvas.yview)
 
-        # Mousewheel Support
+        self.rooms_list_frame = tk.Frame(self._canvas, bg=self.COLORS["card"])
+        self._canvas_window = self._canvas.create_window((0, 0), window=self.rooms_list_frame, anchor="nw")
+
+        # Keep inner frame width matched to canvas width
+        def _on_canvas_resize(event):
+            self._canvas.itemconfig(self._canvas_window, width=event.width)
+        self._canvas.bind("<Configure>", _on_canvas_resize)
+
+        # Mousewheel support
         def _on_mousewheel(event):
             try:
-                if canvas.winfo_exists():
-                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            except: pass
-        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                if self._canvas and self._canvas.winfo_exists():
+                    self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except Exception:
+                pass
+        self._canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
         # Pagination Footer
         self.pagination_frame = tk.Frame(self, bg=self.COLORS["bg"], pady=10)
         self.pagination_frame.pack(fill="x", side="bottom")
+
+    def _apply_filter(self, status_value):
+        self._status_filter = status_value
+        self.current_page = 0
+        self.update_rooms_list()
 
     def update_rooms_list(self):
         if not self.rooms_list_frame: return
         for widget in self.rooms_list_frame.winfo_children(): widget.destroy()
 
         self.rooms_data = database.get_rooms()
+        # Apply status filter before search
+        if self._status_filter:
+            self.rooms_data = [r for r in self.rooms_data if r["status"] == self._status_filter]
         self.search_rooms(self.search_var.get())
 
     def search_rooms(self, query):
@@ -177,8 +177,12 @@ class RoomsPage(tk.Frame):
             badge_bg.pack()
             tk.Label(badge_bg, text=status.upper(), font=("Segoe UI", 9, "bold"), fg="white", bg=color).pack()
 
-            # Column 3: Price
-            display_price = str(price).replace('$', 'GH₵ ')
+            # Column 3: Price — strip currency symbols/commas before parsing
+            try:
+                price_str = str(price).replace("GH₵", "").replace(",", "").strip()
+                display_price = f"GH₵ {float(price_str):,.2f}" if price_str else "N/A"
+            except (ValueError, TypeError):
+                display_price = str(price) if price else "N/A"
             tk.Label(row, text=display_price, font=("Segoe UI", 11, "bold"), fg=self.COLORS["text_primary"], 
                      bg=self.COLORS["card"], anchor="e").grid(row=0, column=3, sticky="ew", padx=(0, 15))
 
@@ -199,7 +203,12 @@ class RoomsPage(tk.Frame):
             # Row border bottom
             tk.Frame(self.rooms_list_frame, bg=self.COLORS["border"], height=1).pack(fill="x")
 
-        # 3. Update Pagination Controls
+        # 3. Update scroll region so the scrollbar knows the full content height
+        self.rooms_list_frame.update_idletasks()
+        if self._canvas:
+            self._canvas.configure(scrollregion=self._canvas.bbox("all"))
+
+        # 4. Update Pagination Controls
         self.update_pagination_controls(total_pages)
 
     def update_pagination_controls(self, total_pages):
@@ -292,12 +301,16 @@ class RoomsPage(tk.Frame):
             stat = entries["Status"].get()
             price = entries["Price (GH₵)"].get()
             
-            if not num or not price: 
+            if not num or not price:
                 messagebox.showwarning("Warning", "All fields are required.")
                 return
-            
-            formatted_price = f"GH₵ {price.replace('GH₵', '').strip()}"
-            
+
+            try:
+                formatted_price = float(price.replace('GH₵', '').replace(',', '').strip())
+            except ValueError:
+                messagebox.showwarning("Warning", "Price must be a valid number (e.g. 250 or 1500.00).")
+                return
+
             if edit_data:
                 success = database.update_room(num, rtype, stat, formatted_price, old_number=edit_data["room_number"])
             else:

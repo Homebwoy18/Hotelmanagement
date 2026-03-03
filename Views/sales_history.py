@@ -1,23 +1,13 @@
 # Sales History Page
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
+import csv
 import database
+from Views.theme import COLORS
 
 class SalesHistoryPage(tk.Frame):
     def __init__(self, parent):
-        self.COLORS = {
-            "bg": "#111827",
-            "sidebar": "#1F2937",
-            "card": "#1F2937",
-            "accent": "#6366F1",
-            "text_primary": "#F9FAFB",
-            "text_secondary": "#9CA3AF",
-            "border": "#374151",
-            "success": "#10B981",
-            "danger": "#EF4444",
-            "warning": "#F59E0B",
-            "info": "#3B82F6"
-        }
+        self.COLORS = COLORS
         
         super().__init__(parent, bg=self.COLORS["bg"])
         self.all_sales = []
@@ -41,8 +31,14 @@ class SalesHistoryPage(tk.Frame):
         header = tk.Frame(container, bg=self.COLORS["bg"])
         header.pack(fill="x", pady=(0, 30))
         
-        tk.Label(header, text="📈 Sales History", font=("Segoe UI", 24, "bold"), 
+        tk.Label(header, text="📈 Sales History", font=("Segoe UI", 24, "bold"),
                  fg=self.COLORS["text_primary"], bg=self.COLORS["bg"]).pack(side="left")
+
+        # CSV Export
+        tk.Button(header, text="⬇ Export CSV", font=("Segoe UI", 10, "bold"),
+                  fg="white", bg=COLORS["success"], activebackground="#059669",
+                  activeforeground="white", bd=0, padx=14, pady=6, cursor="hand2",
+                  command=self.export_csv).pack(side="right")
 
         # Stats Cards Row
         stats_row = tk.Frame(container, bg=self.COLORS["bg"])
@@ -180,3 +176,30 @@ class SalesHistoryPage(tk.Frame):
         if self.current_page < total_pages - 1:
             self.current_page += 1
             self.update_table()
+
+    def export_csv(self):
+        if not self.display_sales:
+            messagebox.showinfo("Export", "No data to export.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv")],
+            title="Save Sales History",
+            initialfile="sales_history.csv"
+        )
+        if not path:
+            return
+        headers = ["ID", "Item Name", "Quantity", "Total Cost", "Payment Method", "Date", "Room"]
+        try:
+            import csv
+            with open(path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(headers)
+                date_key = lambda s: s['sale_date'].split('.')[0] if s['sale_date'] else "N/A"
+                for s in self.display_sales:
+                    writer.writerow([s['id'], s['name'], s['quantity'],
+                                     f"GH₵ {s['total_cost']:,.2f}", s['payment_method'],
+                                     date_key(s), s['room_number'] or "-"])
+            messagebox.showinfo("Export Successful", f"Data saved to:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e))
