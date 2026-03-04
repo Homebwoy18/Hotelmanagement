@@ -26,3 +26,6 @@ pyrightconfig.json
 
 # Auto-reload dev script (dev-only)
 auto_reload.py
+
+# Project Blueprint
+BLUEPRINT.md
